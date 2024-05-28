@@ -1,32 +1,38 @@
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, sum as _sum
-from pyspark.sql.window import Window
+from pyspark.sql.functions import col, count, avg, countDistinct, to_date
+from pyspark.sql.functions import lit
+from pyspark.sql.functions import  from_json, from_unixtime, date_format
 
-columns = ["product", "date", "value"]
+# Initialize Spark session
+spark = SparkSession.builder \
+    .appName("User Click Data ETL") \
+    .getOrCreate()
 
 
-data = [
-    ("p1", "d1", 10),
-    ("p1", "d2", 9),
-    ("p1", "d3", 20),
-    ("p2", "d1", 15),
-    ("p2", "d2", 30)
-]
-columns = ["product", "date", "value"]
+# Read the JSON data
+user_df = spark.read \
+    .json(r"D:\Pyspark_task\user_click_data.json")
 
-# Create the DataFrame
-data_df = spark.createDataFrame(data, columns)
 
-# Show the DataFrame to verify it
-data_df.show()
+# Correct data types
+user1_df = user_df.withColumn("timestamp", col("timestamp").cast("timestamp"))
+user_final_df = user1_df.withColumn("event_date", date_format(col("timestamp"), "MM-dd-yyyy"))
 
-# Define the window specification
-windowSpec = Window.partitionBy("product").orderBy("date").rowsBetween(Window.unboundedPreceding, Window.currentRow)
+# represents a random time spent in minutes
+result_df = user_final_df.withColumn("time_spent", col("timestamp").cast("long") % 60)  
 
-# Add cumulative sum column
-data_df_with_cumsum = data_df.withColumn("cumulative_sum", _sum("value").over(windowSpec))
 
-# Show the resulting DataFrame
-data_df_with_cumsum.show()
+# Group by URL, country, and date and aggregate
+agg_df = result_df.groupBy("url", "country", "event_date").agg(
+    avg("time_spent").alias("average_minutes_spent"),
+    countDistinct("user_id").alias("unique_users_count"),
+    count("click_event_id").alias("click_count")
+)
+
+# Show the result
+agg_df.show()
+
+# Write the output to a CSV file
+agg_df.write.mode("overwrite").csv("output_ETL_data", header=True)
 
 
